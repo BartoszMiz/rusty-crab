@@ -43,29 +43,32 @@ fn handle_connection(mut stream: TcpStream) {
 
 	let request_line: String = request.lines().take(1).collect();
 	if !request_line.starts_with("GET") {
-		send_empty_response(&mut stream, 405, "Method Not Allowed");
+		send_response(&mut stream, 405, "Method Not Allowed", vec![]);
 	}
 
-	let uri_regex = Regex::new(r"^GET (/.*) HTTP/\d\.\d").unwrap();
-	let mut uri = uri_regex.captures(&request_line).unwrap().get(1).unwrap().as_str();
-	if uri == "/" {
-		uri = "/index.html";
-	}
-	
-	info!("Serving URI: {}", &uri);
-
+	let uri = get_uri(request_line);
 	match fs::read(format!("{}{}", RESOURCE_DIR, uri)) {
 		Err(_) => {
-			send_empty_response(&mut stream, 404, "Not Found");
+			send_response(&mut stream, 404, "Not Found", vec![]);
 			warn!("{} not found!", &uri);
 		},
 		Ok(data) => {
 			send_response(&mut stream, 200, "OK", data);
+			info!("Serving URI: {}", &uri);
 		}
 	}
 
 	stream.flush().unwrap();
 	stream.shutdown(std::net::Shutdown::Both).unwrap();
+}
+
+fn get_uri(request_line: String) -> String {
+	let uri_regex = Regex::new(r"^GET (/.*) HTTP/\d\.\d").unwrap();
+	let uri = uri_regex.captures(&request_line).unwrap().get(1).unwrap().as_str();
+	if uri == "/" {
+		return "/index.html".to_string();
+	}
+	uri.to_string()
 }
 
 fn send_response(stream: &mut TcpStream, code: u32, reason_phrase: &str, mut content: Vec<u8>) {
@@ -76,8 +79,4 @@ fn send_response(stream: &mut TcpStream, code: u32, reason_phrase: &str, mut con
 	).into_bytes();
 	response.append(&mut content);
 	stream.write_all(&response).unwrap();
-}
-
-fn send_empty_response(stream: &mut TcpStream, code: u32, reason_phrase: &str) {
-	send_response(stream, code, reason_phrase, vec![]);
 }
