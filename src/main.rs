@@ -2,6 +2,7 @@ use std::net::{TcpListener, TcpStream};
 use std::io::{Write, Read};
 use log::{debug, info, warn, error};
 use regex::Regex;
+use std::fs;
 
 const BIND_ADDRESS: &str = "127.0.0.1";
 const BIND_PORT: u32 = 8080;
@@ -23,7 +24,7 @@ fn main() {
 	
 	for stream in tcp_listener.incoming() {
 		match stream {
-			Ok(mut stream) => {
+			Ok(stream) => {
 				info!("Incoming connection from: {}", stream.peer_addr().unwrap());
 				handle_connection(stream);
 			},
@@ -46,24 +47,37 @@ fn handle_connection(mut stream: TcpStream) {
 	}
 
 	let uri_regex = Regex::new(r"^GET (/.*) HTTP/\d\.\d").unwrap();
-	let uri = uri_regex.captures(&request_line).unwrap().get(1).unwrap().as_str();
-	debug!("Requested URI: {}", &uri);
+	let mut uri = uri_regex.captures(&request_line).unwrap().get(1).unwrap().as_str();
+	if uri == "/" {
+		uri = "/index.html";
+	}
+	
+	info!("Serving URI: {}", &uri);
 
-    stream.write_all(b"HTTP/1.1 418 I'm a teapot\r\n").unwrap();
-    stream.flush().unwrap();
-    stream.shutdown(std::net::Shutdown::Both).unwrap();
+	match fs::read(format!("{}{}", RESOURCE_DIR, uri)) {
+		Err(_) => {
+			send_empty_response(&mut stream, 404, "Not Found");
+			warn!("{} not found!", &uri);
+		},
+		Ok(data) => {
+			send_response(&mut stream, 200, "OK", data);
+		}
+	}
+
+	stream.flush().unwrap();
+	stream.shutdown(std::net::Shutdown::Both).unwrap();
 }
 
-fn send_response(stream: &mut TcpStream, code: u32, reason_phrase: &str, content: &str) {
-	stream.write_all(
-		format!("HTTP/1.1 {} {}\r\nContent-Length: {}\r\n\r\n{}",
-			code, 
-			reason_phrase,
-			content.len(),
-			content).as_bytes()
-	).unwrap();
+fn send_response(stream: &mut TcpStream, code: u32, reason_phrase: &str, mut content: Vec<u8>) {
+	let mut response = format!("HTTP/1.1 {} {}\r\nContent-Length: {}\r\n\r\n",
+		code, 
+		reason_phrase,
+		content.len()
+	).into_bytes();
+	response.append(&mut content);
+	stream.write_all(&response).unwrap();
 }
 
 fn send_empty_response(stream: &mut TcpStream, code: u32, reason_phrase: &str) {
-	send_response(stream, code, reason_phrase, "");
+	send_response(stream, code, reason_phrase, vec![]);
 }
