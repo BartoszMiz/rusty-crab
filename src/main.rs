@@ -1,8 +1,11 @@
 use std::net::{TcpListener, TcpStream};
 use std::io::{Write, Read};
+use std::time::Duration;
 use log::{debug, info, warn, error};
 use regex::Regex;
+use rusty_crab::ThreadPool;
 use std::fs;
+use std::thread;
 
 const BIND_ADDRESS: &str = "127.0.0.1";
 const BIND_PORT: u32 = 8080;
@@ -10,6 +13,7 @@ const RESOURCE_DIR: &str = "www";
 
 fn main() {
 	env_logger::init();
+	let thread_pool = ThreadPool::new(4);
 	let address = format!("{}:{}", BIND_ADDRESS, BIND_PORT);
 	let tcp_listener = match TcpListener::bind(&address) {
 		Ok(listener) => {
@@ -26,7 +30,9 @@ fn main() {
 		match stream {
 			Ok(stream) => {
 				info!("Incoming connection from: {}", stream.peer_addr().unwrap());
-				handle_connection(stream);
+				thread_pool.execute(|| {
+					handle_connection(stream)
+				});
 			},
 			Err(e) => {
 				warn!("Connection failed: {}", e);
@@ -47,6 +53,11 @@ fn handle_connection(mut stream: TcpStream) {
 	}
 
 	let uri = get_uri(request_line);
+	if uri == "/sleep" {
+		info!("Sleeping...");
+		thread::sleep(Duration::from_secs(5));
+	}
+
 	match fs::read(format!("{}{}", RESOURCE_DIR, uri)) {
 		Err(_) => {
 			send_response(&mut stream, 404, "Not Found", vec![]);
